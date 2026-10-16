@@ -70,8 +70,7 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
     });
 
     it("should preserve allowed whitelist tags and attributes", () => {
-      const safe =
-        '<p class="lead">Hello <strong>World</strong> and <a href="https://stellar.org" title="Stellar">Stellar</a></p>';
+      const safe = '<p class="lead">Hello <strong>World</strong> and <a href="https://stellar.org" title="Stellar">Stellar</a></p>';
       const result = sanitizeContent(safe);
       expect(result).toContain("<p");
       expect(result).toContain("<strong>World</strong>");
@@ -80,9 +79,13 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
   });
 
   describe("sanitizeMarkdown & parseBasicMarkdown", () => {
+    it("should parse basic markdown headers and convert elements", () => {
+      const headerHtml = parseBasicMarkdown("# Title");
+      expect(headerHtml).toContain("<h1>Title</h1>");
+    });
+
     it("should convert markdown bold, italics, code, and links to safe HTML", () => {
-      const markdown =
-        "Here is **bold** text and *italic* with `code` and [Docs](https://example.com)";
+      const markdown = "Here is **bold** text and *italic* with `code` and [Docs](https://example.com)";
       const sanitized = sanitizeMarkdown(markdown);
       expect(sanitized).toContain("<strong>bold</strong>");
       expect(sanitized).toContain("<em>italic</em>");
@@ -91,8 +94,7 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
     });
 
     it("should neutralize injected scripts embedded in markdown input", () => {
-      const attack =
-        "# Heading\n<script>window.location='https://attacker.com'</script>\n**bold content**";
+      const attack = "# Heading\n<script>window.location='https://attacker.com'</script>\n**bold content**";
       const sanitized = sanitizeMarkdown(attack);
       expect(sanitized).not.toContain("<script");
       expect(sanitized).not.toContain("attacker.com");

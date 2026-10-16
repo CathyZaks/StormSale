@@ -1,4 +1,4 @@
-﻿import DOMPurify from "dompurify";
+﻿import DOMPurify, { type Config } from "dompurify";
 
 /**
  * Strict whitelist configuration for user-generated content and markdown.
@@ -37,7 +37,7 @@ export const WHITELIST_TAGS = [
 
 export const WHITELIST_ATTRS = ["href", "title", "target", "rel", "class"] as const;
 
-export const WHITELIST_CONFIG: DOMPurify.Config = {
+export const WHITELIST_CONFIG: Config = {
   ALLOWED_TAGS: [...WHITELIST_TAGS],
   ALLOWED_ATTR: [...WHITELIST_ATTRS],
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
@@ -88,7 +88,7 @@ function fallbackSanitize(dirty: string): string {
   // Strip javascript:, vbscript:, and data: URLs in href/src
   cleaned = cleaned.replace(
     /\s+(?:href|src)\s*=\s*(?:"\s*(?:javascript|vbscript|data):[^"]*"|'\s*(?:javascript|vbscript|data):[^']*'|\s*(?:javascript|vbscript|data):[^\s>]+)/gi,
-    "",
+    ""
   );
 
   // Strip tags not in whitelist
@@ -107,14 +107,14 @@ function fallbackSanitize(dirty: string): string {
     // Filter attributes to only allowed ones
     const cleanAttrs = (attrs as string).replace(
       /([a-z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-      (attrMatch: string, attrName: string, val1: string, val2: string, val3: string) => {
+      (_attrMatch: string, attrName: string, val1: string, val2: string, val3: string) => {
         const lowerAttr = attrName.toLowerCase();
         if (!WHITELIST_ATTRS.includes(lowerAttr as (typeof WHITELIST_ATTRS)[number])) {
           return "";
         }
         const val = val1 ?? val2 ?? val3 ?? "";
         return ` ${lowerAttr}="${val.replace(/"/g, "&quot;")}"`;
-      },
+      }
     );
 
     const isSelfClosing = match.endsWith("/>") || lowerTag === "br" || lowerTag === "hr";
@@ -146,10 +146,7 @@ export function parseBasicMarkdown(markdown: string): string {
     .replace(/\*([^*]+)\*/g, "<em>$1</em>")
     .replace(/_([^_]+)_/g, "<em>$1</em>")
     // Links [text](url)
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-    )
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     // Line breaks
     .replace(/\n\n/g, "</p><p>")
     .replace(/\n/g, "<br />");
@@ -166,13 +163,13 @@ export function parseBasicMarkdown(markdown: string): string {
  * @param customConfig Optional DOMPurify configuration override
  * @returns Safe sanitized HTML string
  */
-export function sanitizeContent(dirty: string, customConfig?: DOMPurify.Config): string {
+export function sanitizeContent(dirty: string, customConfig?: Config): string {
   if (!dirty || typeof dirty !== "string") return "";
 
   const purifier = getPurifier();
   if (purifier && purifier.isSupported) {
     const config = { ...WHITELIST_CONFIG, ...customConfig };
-    return purifier.sanitize(dirty, config);
+    return String(purifier.sanitize(dirty, config));
   }
 
   return fallbackSanitize(dirty);
@@ -197,7 +194,10 @@ export function sanitizeMarkdown(markdown: string): string {
  * @param isMarkdown Whether input should be parsed as markdown
  * @returns Object with safe `__html`
  */
-export function getSanitizedHtml(input: string, isMarkdown = false): { __html: string } {
+export function getSanitizedHtml(
+  input: string,
+  isMarkdown = false
+): { __html: string } {
   return {
     __html: isMarkdown ? sanitizeMarkdown(input) : sanitizeContent(input),
   };
