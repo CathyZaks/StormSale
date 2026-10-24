@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   computeSha256,
   getSampleSorobanWasm,
@@ -21,6 +21,19 @@ describe("Soroban Contract Bytecode & Disassembly Verification Suite (#185)", ()
       const hash1 = await computeSha256(bytes1);
       const hash2 = await computeSha256(bytes2);
       expect(hash1).toBe(hash2);
+    });
+
+    it("should compute SHA-256 via pure JS fallback when crypto.subtle is unavailable", async () => {
+      const originalSubtle = crypto.subtle;
+      try {
+        Object.defineProperty(crypto, "subtle", { value: undefined, configurable: true });
+        const data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+        const hash = await computeSha256(data);
+        expect(hash).toHaveLength(64);
+        expect(hash).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        Object.defineProperty(crypto, "subtle", { value: originalSubtle, configurable: true });
+      }
     });
   });
 
@@ -47,6 +60,18 @@ describe("Soroban Contract Bytecode & Disassembly Verification Suite (#185)", ()
       const invalid = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x00, 0x00, 0x00]);
       expect(() => disassembleWasm(invalid)).toThrow("missing '\\0asm' magic header");
     });
+
+    it("should reject binaries smaller than 8 bytes", () => {
+      const tooSmall = new Uint8Array([0x00, 0x61, 0x73]);
+      expect(() => disassembleWasm(tooSmall)).toThrow("file is too small");
+    });
+
+    it("should fallback to main function when no exports exist", () => {
+      const minimalWasm = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+      const { wat, exportedFunctions } = disassembleWasm(minimalWasm);
+      expect(exportedFunctions).toEqual(["main"]);
+      expect(wat).toContain('(func $main (export "main")');
+    });
   });
 
   describe("verifyContractBytecode", () => {
@@ -72,5 +97,19 @@ describe("Soroban Contract Bytecode & Disassembly Verification Suite (#185)", ()
       expect(result.isMatch).toBe(false);
       expect(result.onChainHash).not.toBe(result.repoBuildHash);
     });
+
+    it("should support custom WASM bytes and handle short commit tags", async () => {
+      const minimalWasm = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+      const result = await verifyContractBytecode(
+        "C_CUSTOM_CONTRACT",
+        "short",
+        minimalWasm
+      );
+
+      expect(result.isMatch).toBe(false);
+      expect(result.bytecodeSizeBytes).toBe(8);
+      expect(result.exportedFunctions).toEqual(["main"]);
+    });
   });
 });
+
