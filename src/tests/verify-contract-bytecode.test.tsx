@@ -146,7 +146,7 @@ describe("VerifyContractBytecode UI Component (#185)", () => {
 
     const searchInput = screen.getByPlaceholderText("Filter instructions...");
     fireEvent.change(searchInput, { target: { value: "initialize" } });
-    expect(screen.getByText(/initialize/i)).toBeTruthy();
+    expect(screen.getAllByText(/initialize/i).length).toBeGreaterThan(0);
 
     fireEvent.change(searchInput, { target: { value: "non_existent_instruction_xyz" } });
     expect(screen.getByText(";; No matching instructions found.")).toBeTruthy();
