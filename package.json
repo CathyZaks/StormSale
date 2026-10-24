@@ -57,7 +57,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/dompurify": "^3.0.5",
     "@playwright/test": "^1.64.1",
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/git": "^11.0.1",

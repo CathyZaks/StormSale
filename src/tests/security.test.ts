@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import DOMPurify from "dompurify";
 import {
   WHITELIST_CONFIG,
   WHITELIST_TAGS,
@@ -10,7 +9,7 @@ import {
   parseBasicMarkdown,
 } from "../utils/security";
 
-describe("Global XSS & Content Sanitization Suite (#78)", () => {
+describe("Fallback & Parser Security Suite (#78, Node / Non-DOM environment)", () => {
   describe("Whitelist Configuration", () => {
     it("should define strict allowed tags and attributes", () => {
       expect(WHITELIST_CONFIG.ALLOWED_TAGS).toBeDefined();
@@ -30,78 +29,59 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
       expect(WHITELIST_CONFIG.FORBID_ATTR).toContain("onerror");
       expect(WHITELIST_CONFIG.FORBID_ATTR).toContain("onload");
     });
+
+    it("should have clean ALLOWED_URI_REGEXP without unnecessary escapes", () => {
+      expect(WHITELIST_CONFIG.ALLOWED_URI_REGEXP).toBeInstanceOf(RegExp);
+      expect(WHITELIST_CONFIG.ALLOWED_URI_REGEXP?.test("https://stellar.org")).toBe(true);
+      expect(WHITELIST_CONFIG.ALLOWED_URI_REGEXP?.test("javascript:alert(1)")).toBe(false);
+    });
   });
 
-  describe("sanitizeContent", () => {
+  describe("sanitizeContent (Fallback Path in Node/SSR)", () => {
     it("should handle empty or falsy inputs gracefully", () => {
       expect(sanitizeContent("")).toBe("");
       expect(sanitizeContent(null as unknown as string)).toBe("");
       expect(sanitizeContent(undefined as unknown as string)).toBe("");
     });
 
-    it("should strip malicious script tags completely", () => {
+    it("should safely HTML-escape script tags preventing tag execution", () => {
       const malicious = '<p>Safe</p><script>alert("XSS")</script>';
       const result = sanitizeContent(malicious);
       expect(result).not.toContain("<script");
-      expect(result).not.toContain("alert");
-      expect(result).toContain("<p>Safe</p>");
+      expect(result).toContain("&lt;script&gt;");
+      expect(result).toContain("&lt;/script&gt;");
     });
 
-    it("should strip inline event handlers", () => {
-      const malicious = '<b onclick="stealCookies()" onmouseover="evil()">Click</b>';
+    it("should safely HTML-escape elements with inline event handlers", () => {
+      const malicious = '<b onclick="stealCookies()">Click</b>';
       const result = sanitizeContent(malicious);
-      expect(result).not.toContain("onclick");
-      expect(result).not.toContain("onmouseover");
-      expect(result).not.toContain("stealCookies");
-      expect(result).toContain("Click");
+      expect(result).not.toContain("<b");
+      expect(result).toContain("&lt;b");
+      expect(result).toContain("&quot;stealCookies()&quot;");
     });
 
-    it("should strip javascript: pseudo-protocols in links", () => {
+    it("should neutralize javascript: links by escaping markup and attributes", () => {
       const malicious = '<a href="javascript:alert(document.cookie)">Malicious Link</a>';
       const result = sanitizeContent(malicious);
-      expect(result).not.toContain("javascript:");
-      expect(result).toContain("Malicious Link");
+      expect(result).not.toContain("<a ");
+      expect(result).toContain("&lt;a href=&quot;javascript:alert(document.cookie)&quot;&gt;");
     });
 
-    it("should strip disallowed elements like iframe and embed", () => {
-      const malicious = '<iframe src="https://evil.com"></iframe><embed src="evil.swf">';
-      const result = sanitizeContent(malicious);
-      expect(result).not.toContain("<iframe");
-      expect(result).not.toContain("<embed");
+    it("should neutralize obfuscated javascript: URLs by escaping markup without trusting regexes", () => {
+      const obfuscated = '<a href="&#106;avascript:alert(1)">x</a>';
+      const result = sanitizeContent(obfuscated);
+      expect(result).not.toContain("<a ");
+      expect(result).toContain("&lt;a href=&quot;&amp;#106;avascript:alert(1)&quot;&gt;");
     });
 
-    it("should preserve allowed whitelist tags and attributes", () => {
-      const safe = '<p class="lead">Hello <strong>World</strong> and <a href="https://stellar.org" title="Stellar">Stellar</a></p>';
-      const result = sanitizeContent(safe);
-      expect(result).toContain("<p");
-      expect(result).toContain("<strong>World</strong>");
-      expect(result).toContain('href="https://stellar.org"');
-    });
-
-    it("should use fallback sanitizer when DOMPurify is not supported", () => {
-      const originalIsSupported = (DOMPurify as unknown as { isSupported: boolean }).isSupported;
-      try {
-        (DOMPurify as unknown as { isSupported: boolean }).isSupported = false;
-        const html = '<p class="lead">Hello <strong>World</strong><script>alert(1)</script><style>body{}</style><iframe src="x"></iframe><object data="x"></object><embed src="x"><a href="javascript:void(0)" onclick="evil()">link</a><custom>tag</custom><br /></p>';
-        const sanitized = sanitizeContent(html);
-        expect(sanitized).not.toContain("<script");
-        expect(sanitized).not.toContain("alert");
-        expect(sanitized).not.toContain("<style");
-        expect(sanitized).not.toContain("<iframe");
-        expect(sanitized).not.toContain("<object");
-        expect(sanitized).not.toContain("<embed");
-        expect(sanitized).not.toContain("onclick");
-        expect(sanitized).not.toContain("javascript:");
-        expect(sanitized).not.toContain("<custom");
-        expect(sanitized).toContain("Hello");
-        expect(sanitized).toContain("<strong>World</strong>");
-      } finally {
-        (DOMPurify as unknown as { isSupported: boolean }).isSupported = originalIsSupported;
-      }
+    it("should safely escape quotes, ampersands, and angle brackets", () => {
+      const input = `& < > " '`;
+      const result = sanitizeContent(input);
+      expect(result).toBe("&amp; &lt; &gt; &quot; &#39;");
     });
   });
 
-  describe("sanitizeMarkdown & parseBasicMarkdown", () => {
+  describe("parseBasicMarkdown", () => {
     it("should handle empty or falsy markdown gracefully", () => {
       expect(sanitizeMarkdown("")).toBe("");
       expect(sanitizeMarkdown(null as unknown as string)).toBe("");
@@ -116,37 +96,28 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
       expect(parseBasicMarkdown("###### H6")).toContain("<h6>H6</h6>");
     });
 
-    it("should convert markdown bold, italics, code, and links to safe HTML", () => {
+    it("should convert markdown bold, italics, code, and links to HTML", () => {
       const markdown = "Here is **bold** and __bold2__ text and *italic* and _italic2_ with `code` and ```block code``` and [Docs](https://example.com)";
-      const sanitized = sanitizeMarkdown(markdown);
-      expect(sanitized).toContain("<strong>bold</strong>");
-      expect(sanitized).toContain("<strong>bold2</strong>");
-      expect(sanitized).toContain("<em>italic</em>");
-      expect(sanitized).toContain("<em>italic2</em>");
-      expect(sanitized).toContain("<code>code</code>");
-      expect(sanitized).toContain("<pre><code>block code</code></pre>");
-      expect(sanitized).toContain('href="https://example.com"');
-    });
-
-    it("should neutralize injected scripts embedded in markdown input", () => {
-      const attack = "# Heading\n<script>window.location='https://attacker.com'</script>\n**bold content**";
-      const sanitized = sanitizeMarkdown(attack);
-      expect(sanitized).not.toContain("<script");
-      expect(sanitized).not.toContain("attacker.com");
-      expect(sanitized).toContain("<h1>Heading</h1>");
-      expect(sanitized).toContain("<strong>bold content</strong>");
+      const parsed = parseBasicMarkdown(markdown);
+      expect(parsed).toContain("<strong>bold</strong>");
+      expect(parsed).toContain("<strong>bold2</strong>");
+      expect(parsed).toContain("<em>italic</em>");
+      expect(parsed).toContain("<em>italic2</em>");
+      expect(parsed).toContain("<code>code</code>");
+      expect(parsed).toContain("<pre><code>block code</code></pre>");
+      expect(parsed).toContain('href="https://example.com"');
     });
   });
 
   describe("getSanitizedHtml", () => {
-    it("should produce __html object suitable for React dangerouslySetInnerHTML", () => {
-      const output = getSanitizedHtml("<strong>Safe Text</strong>");
-      expect(output).toEqual({ __html: "<strong>Safe Text</strong>" });
+    it("should wrap escaped string in __html object", () => {
+      const output = getSanitizedHtml("<b>Bold</b>");
+      expect(output).toEqual({ __html: "&lt;b&gt;Bold&lt;/b&gt;" });
     });
 
-    it("should correctly handle markdown flag", () => {
-      const output = getSanitizedHtml("**Bold Markdown**", true);
-      expect(output.__html).toContain("<strong>Bold Markdown</strong>");
+    it("should escape parsed markdown when running fallback", () => {
+      const output = getSanitizedHtml("**Bold**", true);
+      expect(output.__html).toContain("&lt;strong&gt;Bold&lt;/strong&gt;");
     });
   });
 });

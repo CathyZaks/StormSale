@@ -1,4 +1,4 @@
-﻿import DOMPurify, { type Config } from "dompurify";
+import DOMPurify, { type Config } from "dompurify";
 
 /**
  * Strict whitelist configuration for user-generated content and markdown.
@@ -40,7 +40,7 @@ export const WHITELIST_ATTRS = ["href", "title", "target", "rel", "class"] as co
 export const WHITELIST_CONFIG: Config = {
   ALLOWED_TAGS: [...WHITELIST_TAGS],
   ALLOWED_ATTR: [...WHITELIST_ATTRS],
-  ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+  ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i,
   FORBID_TAGS: [
     "script",
     "style",
@@ -61,67 +61,20 @@ export const WHITELIST_CONFIG: Config = {
  * Returns the DOMPurify instance if running in an environment with DOM support.
  */
 function getPurifier(): typeof DOMPurify | null {
-  if (typeof window !== "undefined") {
-    if (typeof DOMPurify === "function") {
-      return (DOMPurify as unknown as (win: Window) => typeof DOMPurify)(window);
-    }
-    return DOMPurify;
-  }
-  return null;
+  return typeof window !== "undefined" ? DOMPurify : null;
 }
 
 /**
  * Fallback sanitizer for environments without DOM support (e.g. Node / SSR).
- * Enforces the whitelist of tags and strips event handlers and script protocols.
+ * Without a DOM, escapes all HTML characters to ensure no malicious markup or scripts execute.
  */
 function fallbackSanitize(dirty: string): string {
-  let cleaned = dirty
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "")
-    .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, "")
-    .replace(/<embed\b[^>]*>/gi, "");
-
-  // Strip all on* attributes
-  cleaned = cleaned.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-
-  // Strip javascript:, vbscript:, and data: URLs in href/src
-  cleaned = cleaned.replace(
-    /\s+(?:href|src)\s*=\s*(?:"\s*(?:javascript|vbscript|data):[^"]*"|'\s*(?:javascript|vbscript|data):[^']*'|\s*(?:javascript|vbscript|data):[^\s>]+)/gi,
-    ""
-  );
-
-  // Strip tags not in whitelist
-  const tagRegex = new RegExp("<(\\/?[a-z0-9]+)\\b([^>]*)>", "gi");
-  cleaned = cleaned.replace(tagRegex, (match, tagPart, attrs) => {
-    const isClosing = tagPart.startsWith("/");
-    const lowerTag = (isClosing ? tagPart.slice(1) : tagPart).toLowerCase();
-    if (!WHITELIST_TAGS.includes(lowerTag as (typeof WHITELIST_TAGS)[number])) {
-      return "";
-    }
-
-    if (isClosing) {
-      return `</${lowerTag}>`;
-    }
-
-    // Filter attributes to only allowed ones
-    const cleanAttrs = (attrs as string).replace(
-      /([a-z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-      (_attrMatch: string, attrName: string, val1: string, val2: string, val3: string) => {
-        const lowerAttr = attrName.toLowerCase();
-        if (!WHITELIST_ATTRS.includes(lowerAttr as (typeof WHITELIST_ATTRS)[number])) {
-          return "";
-        }
-        const val = val1 ?? val2 ?? val3 ?? "";
-        return ` ${lowerAttr}="${val.replace(/"/g, "&quot;")}"`;
-      }
-    );
-
-    const isSelfClosing = match.endsWith("/>") || lowerTag === "br" || lowerTag === "hr";
-    return isSelfClosing ? `<${lowerTag}${cleanAttrs} />` : `<${lowerTag}${cleanAttrs}>`;
-  });
-
-  return cleaned;
+  return dirty
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /**
