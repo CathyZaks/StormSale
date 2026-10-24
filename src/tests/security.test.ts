@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   WHITELIST_CONFIG,
   WHITELIST_TAGS,
@@ -76,20 +76,54 @@ describe("Global XSS & Content Sanitization Suite (#78)", () => {
       expect(result).toContain("<strong>World</strong>");
       expect(result).toContain('href="https://stellar.org"');
     });
+
+    it("should use fallback sanitizer when DOMPurify is not supported", () => {
+      const originalIsSupported = (DOMPurify as unknown as { isSupported: boolean }).isSupported;
+      try {
+        (DOMPurify as unknown as { isSupported: boolean }).isSupported = false;
+        const html = '<p class="lead">Hello <strong>World</strong><script>alert(1)</script><style>body{}</style><iframe src="x"></iframe><object data="x"></object><embed src="x"><a href="javascript:void(0)" onclick="evil()">link</a><custom>tag</custom><br /></p>';
+        const sanitized = sanitizeContent(html);
+        expect(sanitized).not.toContain("<script");
+        expect(sanitized).not.toContain("alert");
+        expect(sanitized).not.toContain("<style");
+        expect(sanitized).not.toContain("<iframe");
+        expect(sanitized).not.toContain("<object");
+        expect(sanitized).not.toContain("<embed");
+        expect(sanitized).not.toContain("onclick");
+        expect(sanitized).not.toContain("javascript:");
+        expect(sanitized).not.toContain("<custom");
+        expect(sanitized).toContain("Hello");
+        expect(sanitized).toContain("<strong>World</strong>");
+      } finally {
+        (DOMPurify as unknown as { isSupported: boolean }).isSupported = originalIsSupported;
+      }
+    });
   });
 
   describe("sanitizeMarkdown & parseBasicMarkdown", () => {
-    it("should parse basic markdown headers and convert elements", () => {
-      const headerHtml = parseBasicMarkdown("# Title");
-      expect(headerHtml).toContain("<h1>Title</h1>");
+    it("should handle empty or falsy markdown gracefully", () => {
+      expect(sanitizeMarkdown("")).toBe("");
+      expect(sanitizeMarkdown(null as unknown as string)).toBe("");
+    });
+
+    it("should parse all markdown header levels", () => {
+      expect(parseBasicMarkdown("# H1")).toContain("<h1>H1</h1>");
+      expect(parseBasicMarkdown("## H2")).toContain("<h2>H2</h2>");
+      expect(parseBasicMarkdown("### H3")).toContain("<h3>H3</h3>");
+      expect(parseBasicMarkdown("#### H4")).toContain("<h4>H4</h4>");
+      expect(parseBasicMarkdown("##### H5")).toContain("<h5>H5</h5>");
+      expect(parseBasicMarkdown("###### H6")).toContain("<h6>H6</h6>");
     });
 
     it("should convert markdown bold, italics, code, and links to safe HTML", () => {
-      const markdown = "Here is **bold** text and *italic* with `code` and [Docs](https://example.com)";
+      const markdown = "Here is **bold** and __bold2__ text and *italic* and _italic2_ with `code` and ```block code``` and [Docs](https://example.com)";
       const sanitized = sanitizeMarkdown(markdown);
       expect(sanitized).toContain("<strong>bold</strong>");
+      expect(sanitized).toContain("<strong>bold2</strong>");
       expect(sanitized).toContain("<em>italic</em>");
+      expect(sanitized).toContain("<em>italic2</em>");
       expect(sanitized).toContain("<code>code</code>");
+      expect(sanitized).toContain("<pre><code>block code</code></pre>");
       expect(sanitized).toContain('href="https://example.com"');
     });
 
