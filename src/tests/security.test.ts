@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import DOMPurify from "dompurify";
 import {
   WHITELIST_CONFIG,
   WHITELIST_TAGS,
